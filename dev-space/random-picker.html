@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Picker</title>
+    <style>
+        :root { --bg:#0b0d12; --panel:#131821; --border:#27303d; --text:#f8fafc; --muted:#94a3b8; --accent:#22c55e; }
+        *{box-sizing:border-box} body{margin:0;font-family:"Segoe UI",sans-serif;background:radial-gradient(circle at top,#18283c 0%,var(--bg) 40%);color:var(--text)}
+        .app{padding:24px;display:grid;gap:18px} .layout{display:grid;grid-template-columns:280px 1fr;gap:18px}
+        .panel{background:rgba(19,24,33,.95);border:1px solid var(--border);border-radius:18px;padding:18px}
+        .modes{display:grid;gap:8px} .mode-btn{width:100%;text-align:left;padding:12px;border-radius:12px;background:#0f141b;border:1px solid var(--border);color:var(--text);cursor:pointer}
+        .mode-btn.active{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.08)}
+        h1,h2,h3,p{margin:0}.small{font-size:13px;color:var(--muted)} .stack{display:grid;gap:12px}
+        input,textarea,button,select{font:inherit;color:inherit;background:#0f141b;border:1px solid var(--border);border-radius:12px;padding:10px 12px}
+        textarea{min-height:120px;resize:vertical} button{cursor:pointer} .primary{background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.42)}
+        .result{min-height:240px;display:grid;place-items:center;text-align:center;border:1px dashed var(--border);border-radius:16px;overflow:hidden}
+        .result-value{font-size:clamp(42px,9vw,92px);font-weight:700;letter-spacing:-.04em;animation:pop .35s ease}
+        .history{display:grid;gap:8px}.history-item{padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:#0f141b}
+        .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+        @keyframes pop{0%{transform:scale(.85);opacity:0}100%{transform:scale(1);opacity:1}}
+        @media(max-width:900px){.layout,.grid2{grid-template-columns:1fr}}
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div><h1>Random Picker</h1><p class="small" style="margin-top:8px;">Names, numbers, coin flips, dice, shuffled lists, and yes/no with saved history.</p></div>
+        <div class="layout">
+            <aside class="panel">
+                <div class="modes" id="modeButtons"></div>
+                <div class="stack" style="margin-top:18px;">
+                    <label class="small"><input id="excludeLast" type="checkbox" style="width:auto; margin-right:8px;">Exclude last result</label>
+                </div>
+            </aside>
+            <main class="stack">
+                <section class="panel" id="controlsPanel"></section>
+                <section class="panel result"><div id="resultBox" class="result-value">Ready</div></section>
+                <section class="panel">
+                    <h2>History</h2>
+                    <div id="history" class="history" style="margin-top:12px;"></div>
+                </section>
+            </main>
+        </div>
+    </div>
+    <script>
+        const STORAGE_KEY = "prism.randomPicker.v1";
+        const modes = ["Name Picker", "Number Generator", "Coin Flip", "Dice Roller", "List Randomizer", "Yes / No"];
+        let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"mode":"Name Picker","history":[]}');
+        let lastResult = state.history[0]?.result || null;
+
+        function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+        function rand(max) { return Math.floor(Math.random() * max); }
+        function pushHistory(mode, result) {
+            state.history.unshift({ mode, result, at: Date.now() });
+            state.history = state.history.slice(0, 20);
+            lastResult = result;
+            save();
+            renderHistory();
+        }
+        function pickUnique(list) {
+            const filtered = document.getElementById("excludeLast").checked ? list.filter((item) => item !== lastResult) : list;
+            const source = filtered.length ? filtered : list;
+            return source[rand(source.length)];
+        }
+        function setResult(value) {
+            const box = document.getElementById("resultBox");
+            box.textContent = value;
+            box.className = "result-value";
+            void box.offsetWidth;
+            box.className = "result-value";
+        }
+        function renderModes() {
+            const root = document.getElementById("modeButtons");
+            root.innerHTML = "";
+            modes.forEach((mode) => {
+                const btn = document.createElement("button");
+                btn.className = "mode-btn" + (state.mode === mode ? " active" : "");
+                btn.textContent = mode;
+                btn.addEventListener("click", () => { state.mode = mode; save(); renderModes(); renderControls(); });
+                root.appendChild(btn);
+            });
+        }
+        function renderControls() {
+            const panel = document.getElementById("controlsPanel");
+            if (state.mode === "Name Picker") {
+                panel.innerHTML = `<h2>Name Picker</h2><div class="stack" style="margin-top:12px;"><textarea id="nameList" placeholder="One name per line"></textarea><button class="primary" id="pickNameBtn">Pick a name</button></div>`;
+                document.getElementById("pickNameBtn").onclick = () => {
+                    const names = document.getElementById("nameList").value.split(/\r?\n/).map((v) => v.trim()).filter(Boolean);
+                    if (!names.length) return;
+                    const result = pickUnique(names);
+                    setResult(result);
+                    pushHistory(state.mode, result);
+                };
+            } else if (state.mode === "Number Generator") {
+                panel.innerHTML = `<h2>Number Generator</h2><div class="grid2" style="margin-top:12px;"><input id="minNum" type="number" value="1"><input id="maxNum" type="number" value="100"><input id="qtyNum" type="number" value="1" min="1" max="20"><label class="small"><input id="dupNum" type="checkbox" style="width:auto; margin-right:8px;">Allow duplicates</label></div><button class="primary" id="genNumBtn" style="margin-top:12px;">Generate</button>`;
+                document.getElementById("genNumBtn").onclick = () => {
+                    const min = Number(document.getElementById("minNum").value);
+                    const max = Number(document.getElementById("maxNum").value);
+                    const qty = Number(document.getElementById("qtyNum").value);
+                    const allowDupes = document.getElementById("dupNum").checked;
+                    const pool = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+                    const results = [];
+                    while (results.length < qty && pool.length) {
+                        const value = allowDupes ? min + rand(max - min + 1) : pool.splice(rand(pool.length), 1)[0];
+                        results.push(value);
+                    }
+                    const result = results.join(", ");
+                    setResult(result);
+                    pushHistory(state.mode, result);
+                };
+            } else if (state.mode === "Coin Flip") {
+                panel.innerHTML = `<h2>Coin Flip</h2><p class="small" style="margin-top:8px;">Animated simple reveal.</p><button class="primary" id="coinBtn" style="margin-top:12px;">Flip coin</button>`;
+                document.getElementById("coinBtn").onclick = () => {
+                    const result = pickUnique(["Heads", "Tails"]);
+                    setResult(result);
+                    pushHistory(state.mode, result);
+                };
+            } else if (state.mode === "Dice Roller") {
+                panel.innerHTML = `<h2>Dice Roller</h2><div class="grid2" style="margin-top:12px;"><select id="diceType"><option>d4</option><option selected>d6</option><option>d8</option><option>d10</option><option>d12</option><option>d20</option></select><input id="diceCount" type="number" min="1" max="6" value="2"></div><button class="primary" id="diceBtn" style="margin-top:12px;">Roll dice</button>`;
+                document.getElementById("diceBtn").onclick = () => {
+                    const sides = Number(document.getElementById("diceType").value.slice(1));
+                    const count = Number(document.getElementById("diceCount").value);
+                    const result = Array.from({ length: count }, () => 1 + rand(sides)).join(", ");
+                    setResult(result);
+                    pushHistory(state.mode, result);
+                };
+            } else if (state.mode === "List Randomizer") {
+                panel.innerHTML = `<h2>List Randomizer</h2><div class="stack" style="margin-top:12px;"><textarea id="shuffleList" placeholder="One item per line"></textarea><button class="primary" id="shuffleBtn">Shuffle list</button></div>`;
+                document.getElementById("shuffleBtn").onclick = () => {
+                    const list = document.getElementById("shuffleList").value.split(/\r?\n/).map((v) => v.trim()).filter(Boolean);
+                    for (let i = list.length - 1; i > 0; i -= 1) {
+                        const j = rand(i + 1);
+                        [list[i], list[j]] = [list[j], list[i]];
+                    }
+                    const result = list.join(" -> ");
+                    setResult(result);
+                    pushHistory(state.mode, result);
+                };
+            } else {
+                panel.innerHTML = `<h2>Yes / No</h2><p class="small" style="margin-top:8px;">Use this when you want a hard answer.</p><button class="primary" id="yesNoBtn" style="margin-top:12px;">Reveal answer</button>`;
+                document.getElementById("yesNoBtn").onclick = () => {
+                    const result = pickUnique(["Yes", "No"]);
+                    setResult(result);
+                    pushHistory(state.mode, result);
+                };
+            }
+        }
+        function renderHistory() {
+            const root = document.getElementById("history");
+            root.innerHTML = state.history.length ? "" : '<div class="small">No history yet.</div>';
+            state.history.forEach((entry) => {
+                const div = document.createElement("div");
+                div.className = "history-item";
+                div.innerHTML = `<strong>${entry.mode}</strong><div class="small" style="margin-top:4px;">${entry.result}</div>`;
+                root.appendChild(div);
+            });
+        }
+        renderModes();
+        renderControls();
+        renderHistory();
+    </script>
+</body>
+</html>
