@@ -337,14 +337,29 @@
             background: rgba(52, 211, 153, 0.06);
             border: 1px solid rgba(52, 211, 153, 0.2);
             border-radius: 10px;
-            padding: 10px
+            padding: 10px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            min-height: 40px
         }
 
         .cons-list {
             background: rgba(239, 68, 68, 0.06);
             border: 1px solid rgba(239, 68, 68, 0.2);
             border-radius: 10px;
-            padding: 10px
+            padding: 10px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            min-height: 40px
+        }
+
+        .pc-item {
+            font-size: 12px;
+            margin-bottom: 6px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            color: rgba(255, 255, 255, 0.8)
         }
 
         .pc-title {
@@ -676,7 +691,7 @@ Your final recommendation with clear explanation
             let full = '';
             xhrStream(
                 [{ role: 'system', content: sysPrompt }, { role: 'user', content: 'Please analyze this decision.' }],
-                { max_tokens: 4000, temperature: 0.7, chat_template_kwargs: { thinking: true } },
+                { max_tokens: 4000, temperature: 0.7 },
                 (tok) => { full += tok; },
                 () => {
                     lastResult = full;
@@ -720,8 +735,10 @@ Your final recommendation with clear explanation
                     const pcGrid = document.createElement('div'); pcGrid.className = 'pros-cons-grid';
                     const pros = document.createElement('div'); pros.className = 'pros-list';
                     const cons = document.createElement('div'); cons.className = 'cons-list';
-                    pros.innerHTML = `<div class="pc-title">✅ Pros</div>${block.pros.map(p => `<div style="font-size:12px;margin-bottom:4px">• ${p}</div>`).join('')}`;
-                    cons.innerHTML = `<div class="pc-title">❌ Cons</div>${block.cons.map(c => `<div style="font-size:12px;margin-bottom:4px">• ${c}</div>`).join('')}`;
+                    const prosItems = block.pros.length ? block.pros.map(p => `<div class="pc-item">• ${p}</div>`).join('') : '<div class="pc-item" style="color:rgba(255,255,255,0.5);">• No significant pros found</div>';
+                    const consItems = block.cons.length ? block.cons.map(c => `<div class="pc-item">• ${c}</div>`).join('') : '<div class="pc-item" style="color:rgba(255,255,255,0.5);">• No significant cons found</div>';
+                    pros.innerHTML = `<div class="pc-title">✅ Pros</div>${prosItems}`;
+                    cons.innerHTML = `<div class="pc-title">❌ Cons</div>${consItems}`;
                     pcGrid.appendChild(pros); pcGrid.appendChild(cons);
                     const wrapper = document.createElement('div'); wrapper.appendChild(optTitle); wrapper.appendChild(pcGrid);
                     grid.appendChild(wrapper);
@@ -784,12 +801,35 @@ Your final recommendation with clear explanation
         }
 
         function parseOptionPC(option, text) {
-            const re = new RegExp(`OPTION:\\s*${escRe(option)}[\\s\\S]*?(?:PROS:\\s*(.*?)\\n)?(?:CONS:\\s*(.*?)(?:\\n|$))?`, 'i');
-            const m = text.match(re);
-            if (!m) return { pros: [option + ' pros not found'], cons: [] };
-            const pros = (m[1] || '').split('|').map(s => s.trim()).filter(Boolean);
-            const cons = (m[2] || '').split('|').map(s => s.trim()).filter(Boolean);
-            return { pros: pros.length ? pros : ['See detailed analysis'], cons: cons.length ? cons : ['See detailed analysis'] };
+            const optEsc = escRe(option.trim());
+            // Match OPTION: <name> section
+            const sectionRe = new RegExp(`OPTION:\s*${optEsc}([\s\S]*?)(?=OPTION:|$)`, 'i');
+            const sectionMatch = text.match(sectionRe);
+            if (!sectionMatch) return { pros: [], cons: [] };
+            
+            const section = sectionMatch[1];
+            
+            // Extract PROS line
+            const prosRe = /PROS:\s*(.+?)(?=\nCONS:|\n\n|$)/is;
+            const prosMatch = section.match(prosRe);
+            let pros = [];
+            if (prosMatch) {
+                const prosText = prosMatch[1].trim();
+                // Split by | or by comma
+                pros = prosText.split(/[\|,]/).map(s => s.trim()).filter(s => s && s !== 'See detailed analysis');
+            }
+            
+            // Extract CONS line
+            const consRe = /CONS:\s*(.+?)(?=\n\n|$)/is;
+            const consMatch = section.match(consRe);
+            let cons = [];
+            if (consMatch) {
+                const consText = consMatch[1].trim();
+                // Split by | or by comma
+                cons = consText.split(/[\|,]/).map(s => s.trim()).filter(s => s && s !== 'See detailed analysis');
+            }
+            
+            return { pros: pros.length ? pros : [], cons: cons.length ? cons : [] };
         }
 
         function extractScore(text, option, criterion) {
@@ -812,7 +852,13 @@ Your final recommendation with clear explanation
         function showToast(msg, t = 'ok') { const el = document.createElement('div'); const bg = t === 'err' ? 'rgba(239,68,68,0.9)' : 'rgba(16,185,129,0.9)'; el.style.cssText = `position:fixed;top:16px;right:16px;background:${bg};color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999`; el.textContent = msg; document.body.appendChild(el); setTimeout(() => el.remove(), 2500); }
 
         window.closePanel = function () {
-            if (window.parent && window.parent !== window) { try { window.parent.postMessage({ action: 'closeDecisionAnalyzer' }, '*'); if (typeof window.parent.closeDecisionAnalyzer === 'function') window.parent.closeDecisionAnalyzer(); } catch (e) { window.close(); } } else { window.close(); }
+            if (window.parent && window.parent !== window) { 
+                try { 
+                    if (typeof window.parent.closeDecisionAnalyzer === 'function') window.parent.closeDecisionAnalyzer(); 
+                } catch (e) { }
+                try { window.parent.postMessage({ action: 'closeDecisionAnalyzer' }, window.location.origin || '*'); } catch (e) { }
+            }
+            try { window.close(); } catch (e) { }
         };
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
     </script>
